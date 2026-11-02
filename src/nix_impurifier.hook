@@ -1,0 +1,12 @@
+# SPDX-License-Identifier: MIT
+# Native Sorcery hooks: include uncooperating native host-library packages.
+nix_impurifier_cast_final_hook() {
+  if [[ -x /usr/sbin/sorcery-impurifier-activate ]]; then
+    /usr/sbin/sorcery-impurifier-activate activate "${INSTALL_ROOT:-/}" "${STATE_ROOT:-/}" "${TRACK_ROOT:-/}"
+  fi
+}
+nix_impurifier_post_dispel_hook() {
+  if [[ -x /usr/sbin/sorcery-impurifier-activate ]]; then
+    /usr/sbin/sorcery-impurifier-activate remove "${INSTALL_ROOT:-/}" "${STATE_ROOT:-/}" "${TRACK_ROOT:-/}"
+  fi
+}
