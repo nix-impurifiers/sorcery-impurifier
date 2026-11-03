@@ -97,7 +97,9 @@ let
       '';
   makeRuntimeSpell =
     {
-      nixDependency ? "nix",
+      bundledNixStore ? null,
+      bundledNixNotices ? [ ],
+      nixDependency ? (if bundledNixStore == null then "nix" else null),
       pythonDependency ? "python3",
       castfsDependency ? "castfs",
       version ? core.runtimeVersion,
@@ -105,14 +107,13 @@ let
     buildSpell {
       name = "sorcery-impurifier";
       inherit version;
-      dependencies = [
-        nixDependency
+      dependencies = lib.optional (nixDependency != null) nixDependency ++ [
         pythonDependency
         castfsDependency
       ];
       activate = true;
       payload = pkgs.runCommand "sorcery-runtime" { } ''
-        cp -r ${core.makeRuntimeTree { }} $out
+        cp -r ${core.makeRuntimeTree { inherit bundledNixStore bundledNixNotices; }} $out
         chmod -R u+w $out
         install -Dm755 ${../src/activate.py} $out/usr/sbin/sorcery-impurifier-activate
         install -Dm755 ${../src/nix_impurifier.hook} $out/etc/sorcery/hooks/nix_impurifier.hook
@@ -192,6 +193,7 @@ in
     net = makeSpell (args // { offline = false; });
     offline = makeSpell (args // { offline = true; });
   };
+  makeNativeSpell = args: buildSpell (args // { activate = false; });
   runtimeSpell = makeRuntimeSpell { };
   inherit (core) unit;
 }

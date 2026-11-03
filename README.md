@@ -78,3 +78,22 @@ Run `nix flake check -L` for the QEMU native transaction suite and `nix fmt` for
 formatting. Tests run upstream Sorcery scripts with actual CastFS/Linux FUSE on a
 full-install filesystem. They do not establish Source Mage boot/init integration,
 all architecture profiles or historical installwatch compatibility.
+
+## Native payloads and bundled clients
+
+`makeNativeSpell { name; version; payload; dependencies?; ... }` emits a native
+recipe from a producer-prepared tree, with engine activation disabled and no
+implicit Nix dependency. Ordinary cast/dispel owns installation and removal using
+real CastFS. The producer prepares a runnable target layout; this does not
+relocate binaries. The VM installs two generated native versions before the
+engine, checks native inventories and removal, and executes the installed static
+payload in an isolated root without `/nix`. The manager fixture itself uses
+NixOS host tools; this does not claim a complete target-distro boot without Nix.
+
+`makeRuntimeSpell` optionally accepts `bundledNixStore` and
+`bundledNixNotices` for a static ELF client and upstream notices. Bundling omits
+the default Nix dependency; Python and the native file tracker remain required.
+Compatible external clients take precedence, explicit `IMPURIFIER_NIX_STORE`
+disables fallback, and failed mutations are never retried through another
+client. A bundled variant repeats the original lifecycle suite with an
+incompatible external candidate. Nix provisioning remains deferred.

@@ -3,8 +3,21 @@
   pkgs,
   impurifier,
   coreSrc,
+  bundled ? false,
 }:
 let
+  nativeProof = pkgs.pkgsStatic.stdenv.mkDerivation {
+    name = "native-static-proof";
+    dontUnpack = true;
+    buildPhase = ''
+      cat > proof.c <<'C'
+      #include <stdio.h>
+      int main(void) { puts("Hello from native payload"); return 0; }
+      C
+      $CC proof.c -o proof
+    '';
+    installPhase = "mkdir -p $out/bin; cp proof $out/bin/";
+  };
   tools = import ../nix/tools.nix { inherit pkgs; };
   spell = pkgs.runCommand "native-sorcery-fixture-spell" { } ''
     mkdir -p $out/test/native-marker
@@ -99,6 +112,21 @@ let
         hardware
       ];
     };
+  nativeGrimoire =
+    version:
+    impurifier.makeGrimoire {
+      spells = [
+        (impurifier.makeNativeSpell {
+          name = "native-payload";
+          inherit version;
+          payload = pkgs.runCommand "native-sorcery-${version}" { } ''
+            mkdir -p $out/usr/libexec/native-sorcery $out/usr/share
+            cp ${nativeProof}/bin/proof $out/usr/libexec/native-sorcery/proof
+            echo ${version} > $out/usr/share/native-sorcery-version
+          '';
+        })
+      ];
+    };
   grimoire = offline: version: grimoireWith { inherit offline version; };
 
 in
@@ -116,7 +144,12 @@ in
       nix.settings.substituters = lib.mkForce [ ];
       systemd.tmpfiles.rules = [
         "L+ /usr/bin/python3 - - - - ${pkgs.python3}/bin/python3"
-        "L+ /usr/bin/nix-store - - - - ${pkgs.nix}/bin/nix-store"
+        "L+ /usr/bin/nix-store - - - - ${
+          if bundled then
+            pkgs.writeShellScript "incompatible-nix-store" "echo incompatible; exit 1"
+          else
+            "${pkgs.nix}/bin/nix-store"
+        }"
         "L+ /usr/bin/nix - - - - ${pkgs.nix}/bin/nix"
       ];
       virtualisation.qemu.package = lib.mkForce pkgs.qemu;
@@ -168,6 +201,13 @@ in
           succeed(f"rm -rf /grimoire; cp -r {path} /grimoire; chmod -R u+w /grimoire")
       def fail(command):
           return machine.fail("export PATH=/usr/sbin:/usr/bin:$PATH; " + command)
+      with subtest("native generated spells without engine activation"):
+          for version, path in [(1, "${nativeGrimoire "1"}"), (2, "${nativeGrimoire "2"}")]:
+              select_grimoire(path)
+              succeed("cast --from /grimoire/source-cache --no-opts -c native-payload > /tmp/native-payload.log 2>&1; grep '^" + str(version) + "$' /usr/share/native-sorcery-version || { cat /tmp/native-payload.log; exit 1; }")
+              succeed("grep /usr/libexec/native-sorcery/proof /var/log/sorcery/install/native-payload-" + str(version))
+          succeed("mkdir -p /srv/native; cp /usr/libexec/native-sorcery/proof /srv/native/proof; chroot /srv/native /proof | grep Hello; test ! -e /srv/native/nix; test ! -e /usr/sbin/sorcery-impurifier-activate")
+          succeed("dispel native-payload; test ! -e /usr/libexec/native-sorcery/proof; test ! -e /usr/share/native-sorcery-version")
       select_grimoire("${grimoire false "1"}")
       succeed("cast --from /grimoire/source-cache --no-opts -c sorcery-impurifier > /tmp/runtime.log 2>&1; test -x /usr/sbin/sorcery-impurifier || { cat /tmp/runtime.log; exit 1; }")
       succeed("test ! -e ${builtins.unsafeDiscardStringContext (toString (tool "1"))}")
